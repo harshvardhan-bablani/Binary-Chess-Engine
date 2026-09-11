@@ -3,6 +3,7 @@
 #include <sstream>
 #include <vector>
 #include <algorithm>
+#include <cstdio>
 #include "types.h"
 #include "board.h"
 #include "movegen.h"
@@ -27,9 +28,20 @@ void uci_loop() {
             std::cout << "id name SimpleEngine" << std::endl;
             std::cout << "id author YourName" << std::endl;
             std::cout << "uciok" << std::endl;
+            std::cout.flush();
         }
         else if(command == "isready") {
             std::cout << "readyok" << std::endl;
+            std::cout.flush();
+        }
+        else if(command == "ucinewgame") {
+            init_position(pos);
+        }
+        else if(command == "setoption") {
+            // Ignore options for now
+        }
+        else if(command == "stop") {
+            // Stop search - ignore for now
         }
         else if(command == "position") {
             std::string token;
@@ -38,10 +50,15 @@ void uci_loop() {
             if(token == "startpos") {
                 init_position(pos);
                 
-                iss >> token;  // should be "moves"
-                while(iss >> token) {
-                    Move move = parse_move(token);
-                    make_move(pos, move);
+                // Check if there are more tokens (moves)
+                std::string next;
+                if(iss >> next) {
+                    if(next == "moves") {
+                        while(iss >> token) {
+                            Move move = parse_move(token);
+                            make_move(pos, move);
+                        }
+                    }
                 }
             } else if(token == "fen") {
                 std::string fen;
@@ -78,6 +95,7 @@ void uci_loop() {
             
             Move best = searcher.search(pos, time_for_move);
             std::cout << "bestmove " << move_to_string(best) << std::endl;
+            std::cout.flush();
         }
         else if(command == "quit") {
             break;
@@ -191,20 +209,21 @@ void terminal_mode() {
 // ============================================================
 
 int main(int argc, char* argv[]) {
-    // Check for UCI mode
-    bool uci_mode = false;
+    // Check for terminal mode via command line
+    bool terminal = false;
     for(int i = 1; i < argc; i++) {
         std::string arg = argv[i];
-        if(arg == "uci") {
-            uci_mode = true;
+        if(arg == "terminal" || arg == "--terminal") {
+            terminal = true;
             break;
         }
     }
     
-    if(uci_mode) {
-        uci_loop();
-    } else {
+    if(terminal) {
         terminal_mode();
+    } else {
+        // Default: UCI mode (Arena, Cute Chess, etc.)
+        uci_loop();
     }
     
     return 0;

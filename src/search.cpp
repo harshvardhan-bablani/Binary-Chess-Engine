@@ -213,10 +213,16 @@ Move Searcher::search(Position& pos, int time_ms) {
     best_move = {0, 0, NONE_PIECE};
     best_score = 0;
     
+    Move confirmed_best = {0, 0, NONE_PIECE};
+    
     // Iterative deepening
     for(int depth = 1; depth <= 100; depth++) {
         search_depth = depth;
         int score = alphabeta(pos, depth, -100000, 100000, pos.side_to_move == WHITE);
+        
+        if(!time_up || depth == 1) {
+            confirmed_best = best_move;
+        }
         
         if(time_up && depth > 1) break;
         
@@ -224,14 +230,15 @@ Move Searcher::search(Position& pos, int time_ms) {
         std::cout << "info depth " << depth 
                   << " score cp " << score 
                   << " nodes " << nodes
-                  << " pv " << move_to_string(best_move)
+                  << " pv " << move_to_string(confirmed_best)
                   << std::endl;
+        std::cout.flush();
         
         // If we found a forced mate, stop searching
         if(abs(score) > 90000) break;
     }
     
-    return best_move;
+    return confirmed_best;
 }
 
 // ============================================================
