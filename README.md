@@ -2,7 +2,7 @@
 
 # ♟️ Binary Chess Engine
 
-### A High-Performance Chess Engine Built from Scratch in C++
+### A Simplistic Chess Engine Built from Scratch in C++
 
 [![C++](https://img.shields.io/badge/Language-C%2B%2B-00599C?style=for-the-badge&logo=cplusplus&logoColor=white)](https://isocpp.org/)
 [![License](https://img.shields.io/badge/License-GPL%20v3-blue.svg?style=for-the-badge)](LICENSE)
