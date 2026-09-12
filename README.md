@@ -372,13 +372,52 @@ Commands:
 
 ### Option 3: Lichess Bot (Online Play)
 
+Play against anyone online at https://lichess.org/@/aniemite
+
+**Setup (one-time):**
+
 ```bash
-# 1. Create Lichess bot account
-# 2. Get API token with bot:play scope
-# 3. Configure lichess-bot
-# 4. Run
+# 1. Clone lichess-bot
+git clone https://github.com/lichess-bot-devs/lichess-bot
+cd lichess-bot
+pip install -r requirements.txt
+
+# 2. Create config.yml with your token
+# 3. Run
 python lichess-bot.py
 ```
+
+**Detailed Steps:**
+
+1. Create a bot account at https://lichess.org/signup
+2. Generate API token at https://lichess.org/account/oauth/token/create
+   - Select: `bot:play`, `challenge:read`, `challenge:write`
+3. Create `config.yml`:
+   ```yaml
+   token: "YOUR_LICHESS_TOKEN"
+   url: "https://lichess.org/"
+
+   engine:
+     dir: "path/to/chess-engine/"
+     name: "chess-engine.exe"
+     protocol: "uci"
+     ponder: false
+
+   challenge:
+     concurrency: 1
+     sort_by: "best"
+     accept_bot: true
+     accept_human: true
+     variants:
+       - standard
+     time_modes:
+       - real
+       - correspondence
+       - unlimited
+   ```
+4. Run: `python lichess-bot.py`
+
+**Bot Profile:** https://lichess.org/@/aniemite
 
 ---
 
