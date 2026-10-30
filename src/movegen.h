@@ -42,16 +42,10 @@ bool is_attacked(const Position& pos, int square, int by_color);
 // Check if the current side is in check
 bool is_in_check(const Position& pos);
 
-// Make a move on the position
+// Make a move on the position.
+// The move must already be legal (see is_legal_move / generate_moves).
 bool make_move(Position& pos, Move move);
 
-// Undo move (requires saved state)
-struct MoveState {
-    int castling;
-    int en_passant;
-    int halfmove_clock;
-    uint64_t hash;
-};
-
-void make_move(Position& pos, Move move, MoveState& state);
-void undo_move(Position& pos, Move move, const MoveState& state);
+// True if `move` is one of the legal moves in `pos`.
+// Use this to validate moves that arrive as text (UCI, terminal input).
+bool is_legal_move(const Position& pos, Move move);

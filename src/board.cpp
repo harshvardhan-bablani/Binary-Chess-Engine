@@ -1,5 +1,7 @@
 #include "board.h"
+#include <cctype>
 #include <iostream>
+#include <sstream>
 #include <string>
 
 // ============================================================
@@ -60,7 +62,7 @@ void init_position(Position& pos) {
     
     // Game state
     pos.side_to_move = WHITE;
-    pos.castling = 0x0F;  // All castling rights (KQkq)
+    pos.castling = CASTLE_ALL;  // All castling rights (KQkq)
     pos.en_passant = -1;
     pos.halfmove_clock = 0;
     pos.fullmove_number = 1;
@@ -125,53 +127,122 @@ Piece get_piece(const Position& pos, int square, Color& color) {
 // ============================================================
 // Load FEN string
 // ============================================================
-void load_fen(Position& pos, const std::string& fen) {
-    // Clear position
-    for(int c = 0; c < 2; c++) {
-        for(int p = 0; p < 6; p++) {
-            pos.bitboards[c][p] = 0;
-        }
+namespace {
+
+// Map a FEN piece character to a Piece (NONE_PIECE if it is not one).
+Piece piece_from_char(char c) {
+    switch (std::tolower(static_cast<unsigned char>(c))) {
+        case 'p': return PAWN;
+        case 'n': return KNIGHT;
+        case 'b': return BISHOP;
+        case 'r': return ROOK;
+        case 'q': return QUEEN;
+        case 'k': return KING;
+        default:  return NONE_PIECE;
     }
-    
-    int square = 56;  // Start at a8
-    
-    // Parse piece placement
-    for(char c : fen) {
-        if(c == '/') {
-            square -= 16;  // Go to next rank
-        } else if(c == ' ') {
-            break;
-        } else if(c >= '1' && c <= '8') {
-            square += (c - '0');
+}
+
+// A castling right is only meaningful if the rook it refers to is still home.
+void drop_unbacked_castling_rights(Position& pos) {
+    const uint64_t white_rooks = pos.bitboards[WHITE][ROOK];
+    const uint64_t black_rooks = pos.bitboards[BLACK][ROOK];
+
+    if (!(white_rooks & (1ULL << H1))) pos.castling &= ~CASTLE_WK;
+    if (!(white_rooks & (1ULL << A1))) pos.castling &= ~CASTLE_WQ;
+    if (!(black_rooks & (1ULL << H8))) pos.castling &= ~CASTLE_BK;
+    if (!(black_rooks & (1ULL << A8))) pos.castling &= ~CASTLE_BQ;
+}
+
+}  // namespace
+
+bool load_fen(Position& pos, const std::string& fen) {
+    // Parse into a temporary so a bad FEN cannot corrupt the live position.
+    Position parsed;
+
+    std::istringstream iss(fen);
+    std::string placement;
+    std::string side;
+    std::string castling;
+    std::string en_passant;
+
+    if (!(iss >> placement >> side >> castling >> en_passant)) return false;
+
+    // The two clock fields are optional (some tools omit them).
+    iss >> parsed.halfmove_clock >> parsed.fullmove_number;
+    if (parsed.halfmove_clock < 0) parsed.halfmove_clock = 0;
+    if (parsed.fullmove_number < 1) parsed.fullmove_number = 1;
+
+    // ---- Piece placement: exactly 8 ranks of exactly 8 squares ----
+    int square = A8;
+    int files_in_rank = 0;
+    int rank_breaks = 0;
+
+    for (char c : placement) {
+        if (c == '/') {
+            if (files_in_rank != 8) return false;
+            square -= 16;
+            files_in_rank = 0;
+            rank_breaks++;
+        } else if (c >= '1' && c <= '8') {
+            const int empty = c - '0';
+            if (files_in_rank + empty > 8) return false;
+            files_in_rank += empty;
+            square += empty;
         } else {
-            Color color = isupper(c) ? WHITE : BLACK;
-            Piece piece;
-            
-            switch(tolower(c)) {
-                case 'p': piece = PAWN; break;
-                case 'n': piece = KNIGHT; break;
-                case 'b': piece = BISHOP; break;
-                case 'r': piece = ROOK; break;
-                case 'q': piece = QUEEN; break;
-                case 'k': piece = KING; break;
-                default: piece = NONE_PIECE; break;
-            }
-            
-            if(piece != NONE_PIECE) {
-                pos.bitboards[color][piece] |= (1ULL << square);
-            }
+            const Piece piece = piece_from_char(c);
+            if (piece == NONE_PIECE) return false;
+            if (files_in_rank >= 8 || square < A1 || square > H8) return false;
+
+            const Color color = std::isupper(static_cast<unsigned char>(c)) ? WHITE : BLACK;
+            parsed.bitboards[color][piece] |= (1ULL << square);
+            files_in_rank++;
             square++;
         }
     }
-    
-    // Update combined bitboards
-    pos.white_pieces = 0;
-    pos.black_pieces = 0;
-    for(int p = 0; p < 6; p++) {
-        pos.white_pieces |= pos.bitboards[WHITE][p];
-        pos.black_pieces |= pos.bitboards[BLACK][p];
+
+    if (files_in_rank != 8) return false;   // last rank incomplete
+    if (rank_breaks != 7) return false;     // need exactly 8 ranks
+
+    // ---- Side to move ----
+    if (side == "w") parsed.side_to_move = WHITE;
+    else if (side == "b") parsed.side_to_move = BLACK;
+    else return false;
+
+    // ---- Castling rights ----
+    if (castling != "-") {
+        for (char c : castling) {
+            switch (c) {
+                case 'K': parsed.castling |= CASTLE_WK; break;
+                case 'Q': parsed.castling |= CASTLE_WQ; break;
+                case 'k': parsed.castling |= CASTLE_BK; break;
+                case 'q': parsed.castling |= CASTLE_BQ; break;
+                default:  return false;
+            }
+        }
     }
-    pos.all_pieces = pos.white_pieces | pos.black_pieces;
+
+    // ---- En passant target ----
+    if (en_passant != "-") {
+        const int ep = string_to_square(en_passant);
+        if (ep == NO_SQUARE) return false;
+        parsed.en_passant = ep;
+    }
+
+    // ---- A position is only playable with exactly one king per side ----
+    if (__builtin_popcountll(parsed.bitboards[WHITE][KING]) != 1) return false;
+    if (__builtin_popcountll(parsed.bitboards[BLACK][KING]) != 1) return false;
+
+    drop_unbacked_castling_rights(parsed);
+
+    // ---- Combined bitboards ----
+    for (int p = 0; p < 6; p++) {
+        parsed.white_pieces |= parsed.bitboards[WHITE][p];
+        parsed.black_pieces |= parsed.bitboards[BLACK][p];
+    }
+    parsed.all_pieces = parsed.white_pieces | parsed.black_pieces;
+
+    pos = parsed;
+    return true;
 }
 
 // ============================================================
@@ -191,7 +262,7 @@ std::string to_fen(const Position& pos) {
                 empty++;
             } else {
                 if(empty > 0) {
-                    fen += ('0' + empty);
+                    fen += static_cast<char>('0' + empty);
                     empty = 0;
                 }
                 
@@ -206,13 +277,13 @@ std::string to_fen(const Position& pos) {
                     default: c = '?'; break;
                 }
                 
-                if(color == BLACK) c = tolower(c);
+                if(color == BLACK) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
                 fen += c;
             }
         }
         
         if(empty > 0) {
-            fen += ('0' + empty);
+            fen += static_cast<char>('0' + empty);
         }
         
         if(rank > 0) fen += '/';
@@ -223,10 +294,10 @@ std::string to_fen(const Position& pos) {
     
     // Castling
     std::string castling = "";
-    if(pos.castling & 0x08) castling += 'K';
-    if(pos.castling & 0x04) castling += 'Q';
-    if(pos.castling & 0x02) castling += 'k';
-    if(pos.castling & 0x01) castling += 'q';
+    if(pos.castling & CASTLE_WK) castling += 'K';
+    if(pos.castling & CASTLE_WQ) castling += 'Q';
+    if(pos.castling & CASTLE_BK) castling += 'k';
+    if(pos.castling & CASTLE_BQ) castling += 'q';
     if(castling.empty()) castling = "-";
     fen += castling + " ";
     

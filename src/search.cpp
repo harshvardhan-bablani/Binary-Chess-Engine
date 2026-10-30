@@ -8,7 +8,7 @@
 
 Searcher::Searcher() : nodes(0), search_depth(0), best_score(0), 
                        time_limit_ms(5000), time_up(false) {
-    best_move = {0, 0, NONE_PIECE};
+    best_move = null_move();
 }
 
 // ============================================================
@@ -210,10 +210,16 @@ Move Searcher::search(Position& pos, int time_ms) {
     time_limit_ms = time_ms;
     start_time = std::chrono::steady_clock::now();
     
-    best_move = {0, 0, NONE_PIECE};
+    best_move = null_move();
     best_score = 0;
-    
-    Move confirmed_best = {0, 0, NONE_PIECE};
+
+    // No legal moves means checkmate or stalemate. Return a null move so the
+    // caller can emit `bestmove 0000` instead of spinning to depth 100.
+    if(generate_moves(pos).empty()) {
+        return null_move();
+    }
+
+    Move confirmed_best = null_move();
     
     // Iterative deepening
     for(int depth = 1; depth <= 100; depth++) {

@@ -14,8 +14,28 @@
 // UCI PROTOCOL
 // ============================================================
 
+// Apply one UCI move token to `pos`.
+//
+// Moves arriving from a GUI are untrusted text: they can be mistyped, refer to
+// a different position, or be outright illegal. make_move() assumes a legal
+// move, so we check against the legal move list first. This is what stops
+// input like `e1g1` at the start of the game from corrupting the board.
+bool apply_uci_move(Position& pos, const std::string& token) {
+    const Move move = parse_move(token);
+
+    if(!is_legal_move(pos, move)) {
+        std::cout << "info string illegal move: " << token << std::endl;
+        std::cout.flush();
+        return false;
+    }
+
+    return make_move(pos, move);
+}
+
 void uci_loop() {
     Position pos;
+    init_position(pos);  // so commands work even before the first `position`
+
     Searcher searcher;
     std::string line;
     
@@ -26,7 +46,7 @@ void uci_loop() {
         
         if(command == "uci") {
             std::cout << "id name SimpleEngine" << std::endl;
-            std::cout << "id author YourName" << std::endl;
+            std::cout << "id author Harshvardhan Bablani" << std::endl;
             std::cout << "uciok" << std::endl;
             std::cout.flush();
         }
@@ -55,8 +75,7 @@ void uci_loop() {
                 if(iss >> next) {
                     if(next == "moves") {
                         while(iss >> token) {
-                            Move move = parse_move(token);
-                            make_move(pos, move);
+                            apply_uci_move(pos, token);
                         }
                     }
                 }
@@ -65,11 +84,14 @@ void uci_loop() {
                 while(iss >> token && token != "moves") {
                     fen += token + " ";
                 }
-                load_fen(pos, fen);
-                
+
+                if(!load_fen(pos, fen)) {
+                    std::cout << "info string invalid FEN, position unchanged" << std::endl;
+                    std::cout.flush();
+                }
+
                 while(iss >> token) {
-                    Move move = parse_move(token);
-                    make_move(pos, move);
+                    apply_uci_move(pos, token);
                 }
             }
         }
@@ -136,10 +158,26 @@ void terminal_mode() {
         print_board(pos);
         std::cout << (pos.side_to_move == WHITE ? "White" : "Black") << " to move" << std::endl;
         std::cout << "> ";
-        
+        std::cout.flush();
+
         std::string input;
-        std::getline(std::cin, input);
-        
+        if(!std::getline(std::cin, input)) {
+            // stdin was closed (e.g. piped input ran out). Leave cleanly
+            // instead of spinning forever on a failed read.
+            std::cout << std::endl;
+            break;
+        }
+
+        // Tolerate CRLF line endings. When input is piped from a Windows
+        // shell the line still ends in '\r', so "quit\r" would never match.
+        while(!input.empty() && (input.back() == '\r' || input.back() == '\n')) {
+            input.pop_back();
+        }
+
+        if(input.empty()) {
+            continue;
+        }
+
         if(input == "quit") {
             break;
         }
@@ -163,6 +201,12 @@ void terminal_mode() {
         else if(input == "think") {
             std::cout << "Thinking..." << std::endl;
             Move best = searcher.search(pos, 3000);
+
+            if(is_null_move(best)) {
+                std::cout << "No legal moves available." << std::endl;
+                continue;
+            }
+
             std::cout << "Engine plays: " << move_to_string(best) << std::endl;
             
             history.push_back(pos);
@@ -180,24 +224,15 @@ void terminal_mode() {
             // Try to parse as a move
             Move move = parse_move(input);
             
-            // Check if move is legal
-            std::vector<Move> legal_moves = generate_moves(pos);
-            bool legal = false;
-            for(const Move& m : legal_moves) {
-                if(m.from == move.from && m.to == move.to && m.promotion == move.promotion) {
-                    legal = true;
-                    break;
-                }
+            if(!is_legal_move(pos, move)) {
+                std::cout << "Illegal move: " << input << std::endl;
+                continue;
             }
-            
-            if(legal) {
-                history.push_back(pos);
-                if(!make_move(pos, move)) {
-                    std::cout << "Illegal move!" << std::endl;
-                    pos = history.back();
-                    history.pop_back();
-                }
-            } else {
+
+            history.push_back(pos);
+            if(!make_move(pos, move)) {
+                // Should be unreachable: is_legal_move already approved it.
+                history.pop_back();
                 std::cout << "Illegal move: " << input << std::endl;
             }
         }

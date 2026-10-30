@@ -11,7 +11,9 @@
 
 ---
 
-**A complete chess engine implementing bitboard representation, alpha-beta search with iterative deepening, piece-square table evaluation, and the UCI protocol. Capable of playing legal chess at an intermediate level (~1500 Elo) and integrating with standard chess GUIs.**
+**A from-scratch chess engine implementing bitboard representation, alpha-beta search with iterative deepening, piece-square table evaluation, and the UCI protocol. It generates provably correct moves (verified with perft) and plugs into standard chess GUIs.**
+
+> **Test it in one command:** `run_tests.bat` on Windows, or `make test` on Linux/macOS.
 
 </div>
 
@@ -25,6 +27,7 @@
 - [Technical Implementation](#-technical-implementation)
 - [Performance](#-performance)
 - [Build & Run](#-build--run)
+- [Testing](#-testing)
 - [How to Play](#-how-to-play)
 - [Project Structure](#-project-structure)
 - [Key Concepts](#-key-concepts)
@@ -42,7 +45,7 @@ This chess engine was built as a deep dive into **game theory, search algorithms
 | Feature | Description |
 |---------|-------------|
 | **Bitboard Representation** | 64-bit integers for O(1) square queries |
-| **Complete Move Generation** | All legal moves including castling, en passant, promotion |
+| **Correct Move Generation** | All legal moves including castling, en passant and promotion, verified by perft |
 | **Alpha-Beta Pruning** | Search optimization that eliminates unnecessary branches |
 | **Iterative Deepening** | Always has a best move ready, even under time pressure |
 | **Piece-Square Tables** | Positional evaluation based on piece placement |
@@ -297,21 +300,25 @@ int alphabeta(Position& pos, int depth, int alpha, int beta, bool maximizing) {
 
 ## 📊 Performance
 
-| Metric | Value |
-|--------|-------|
-| **Search Speed** | 100k-500k nodes/second |
-| **Search Depth** | 6-10 ply (iterative deepening) |
-| **Estimated Strength** | ~1500 Elo (intermediate player) |
-| **Lines of Code** | ~1500 |
-| **Memory Usage** | < 50MB |
+| Metric | Measured value |
+|--------|----------------|
+| **Move generation** | ~9.5M perft nodes/second (perft(5) from the start: 4,865,609 nodes in 0.51 s) |
+| **Search Speed** | ~200k nodes/second |
+| **Search Depth** | 6 ply in ~3 s; deeper given more time |
+| **Lines of Code** | ~1,600 |
+| **Memory Usage** | < 50 MB |
+
+These are measured on a single desktop core, not estimates. Search speed is
+deliberately modest: every candidate move copies the whole position, which is
+the first thing on the [improvement list](#-future-enhancements).
 
 ### Benchmark Results
 
 ```
 Position: Starting position
-Time: 5 seconds
-Depth reached: 7 ply
-Nodes searched: ~2.5 million
+Time: 3 seconds
+Depth reached: 6 ply
+Nodes searched: ~605,000
 Best move: Nf3 (Knight to f3)
 ```
 
@@ -321,28 +328,93 @@ Best move: Nf3 (Knight to f3)
 
 ### Prerequisites
 
-- C++ compiler (GCC, Clang, or MSVC)
-- C++17 or later
+- A C++17 compiler (GCC or Clang; the code uses `__builtin_ctzll`, so MSVC will not compile it as-is)
+- `make` (optional — the batch scripts and the one-line command below work without it)
 
-### Compilation
+### Build
+
+**Windows**
+
+```bat
+build.bat
+```
+
+**Linux / macOS / MSYS2**
 
 ```bash
-# Linux/macOS
-g++ -std=c++17 -O2 -o chess-engine src/main.cpp src/board.cpp src/movegen.cpp src/eval.cpp src/search.cpp
-
-# Windows (MinGW)
-g++ -std=c++17 -O2 -o chess-engine.exe src/main.cpp src/board.cpp src/movegen.cpp src/eval.cpp src/search.cpp
+make            # produces build/chess-engine and build/perft
 ```
+
+**Without make, any platform**
+
+```bash
+g++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Isrc -o chess-engine \
+    src/main.cpp src/board.cpp src/movegen.cpp src/eval.cpp src/search.cpp
+```
+
+`CMakeLists.txt` is also provided if you prefer CMake.
 
 ### Running
 
 ```bash
-# Terminal mode (play in terminal)
-./chess-engine terminal
-
-# UCI mode (for GUIs)
-./chess-engine
+./build/chess-engine terminal   # play in the terminal
+./build/chess-engine            # UCI mode, for chess GUIs
 ```
+
+---
+
+## ✅ Testing
+
+The engine is validated with **perft**, the standard move-generation test: it
+counts the nodes in the move tree at a given depth and compares them with the
+published reference values. If a single move is wrong, the counts diverge.
+
+### Quick start
+
+**Windows**
+
+```bat
+build.bat          :: 1. compile into build\chess-engine.exe
+run_tests.bat      :: 2. build and run the perft suite
+```
+
+**Linux / macOS / MSYS2**
+
+```bash
+make test          # builds the engine + perft runner, then runs the suite
+```
+
+That is all. The suite runs six standard positions to depth 4–5 (31 checks,
+about 2 seconds) and prints `PASS` or `FAIL` for each, exiting non-zero on
+failure.
+
+```
+startpos
+  [PASS] depth 1          20       0.0 ms
+  ...
+  [PASS] depth 5     4865609     509.6 ms
+kiwipete
+  [PASS] depth 4     4085603     418.9 ms
+...
+31/31 checks passed in 1.60 s
+```
+
+Pass a depth to cap the run when you want a quick check:
+
+```bash
+./build/perft 3        # or: run_tests.bat 3
+```
+
+### Extra tests
+
+| Test | Command | What it proves |
+|------|---------|----------------|
+| Perft suite | `make test` | Move generation matches the reference counts for all six standard positions |
+| UCI regression | `python tests/regression.py ./build/chess-engine` | Illegal castling, illegal promotion, malformed FEN and terminal edge cases are rejected |
+| Self-play | `pip install python-chess` then `python tests/selfplay.py ./build/chess-engine` | The engine only ever plays legal moves, with `python-chess` as referee |
+
+CI runs the build, the perft suite, a UCI smoke test and a self-play game on
+every push and pull request (`.github/workflows/ci.yml`).
 
 ---
 
@@ -432,7 +504,16 @@ chess-engine/
 │   ├── eval.h/cpp        # Evaluation function + PSTs
 │   ├── search.h/cpp      # Alpha-beta + iterative deepening
 │   └── main.cpp          # UCI protocol + terminal interface
-├── CMakeLists.txt        # Build configuration
+├── tests/
+│   ├── perft.cpp         # Perft suite (six standard positions)
+│   ├── regression.py     # Illegal-input regression checks
+│   └── selfplay.py       # Self-play legality test (python-chess referee)
+├── .github/workflows/
+│   └── ci.yml            # Build + perft + UCI + self-play on every push
+├── Makefile              # make / make test
+├── build.bat             # one-command Windows build
+├── run_tests.bat         # one-command Windows test
+├── CMakeLists.txt        # Alternative CMake build
 ├── README.md             # This file
 └── LICENSE               # GNU GPL v3
 ```
