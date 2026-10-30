@@ -4,6 +4,7 @@
 #include <vector>
 #include <algorithm>
 #include <cstdio>
+#include <thread>
 #include "types.h"
 #include "board.h"
 #include "movegen.h"
@@ -33,11 +34,82 @@ bool apply_uci_move(Position& pos, const std::string& token) {
     return make_move(pos, move);
 }
 
+// Translate a UCI `go` line into search limits.
+//
+// Supported: wtime, btime, winc, binc, movestogo, movetime, depth, nodes and
+// infinite. A GUI that sends only `depth` or `nodes` gets exactly that many,
+// with no clock; everything else falls back to a share of the remaining time.
+SearchLimits parse_go(std::istringstream& iss, const Position& pos) {
+    SearchLimits limits;
+
+    int wtime = 60000, btime = 60000;
+    int winc = 0, binc = 0;
+    int movestogo = 0;
+    int movetime = 0;
+    bool has_clock = false;
+
+    std::string token;
+    while(iss >> token) {
+        if(token == "wtime") { iss >> wtime; has_clock = true; }
+        else if(token == "btime") { iss >> btime; has_clock = true; }
+        else if(token == "winc") iss >> winc;
+        else if(token == "binc") iss >> binc;
+        else if(token == "movestogo") iss >> movestogo;
+        else if(token == "movetime") iss >> movetime;
+        else if(token == "depth") iss >> limits.depth;
+        else if(token == "nodes") iss >> limits.nodes;
+        else if(token == "infinite") limits.infinite = true;
+        // `ponder`, `searchmoves` and unknown tokens are ignored.
+    }
+
+    if(movetime > 0) {
+        limits.time_ms = movetime;
+    } else if(limits.infinite) {
+        limits.time_ms = 0;  // until stop
+    } else if(!has_clock && (limits.depth > 0 || limits.nodes > 0)) {
+        limits.time_ms = 0;
+    } else {
+        const int time_left = std::max(0, (pos.side_to_move == WHITE) ? wtime : btime);
+        const int inc = std::max(0, (pos.side_to_move == WHITE) ? winc : binc);
+        const int moves_to_go = (movestogo > 0) ? movestogo : 30;
+
+        int budget = time_left / moves_to_go + inc / 2;
+        budget = std::max(budget, 1);
+        budget = std::min(budget, std::max(1, time_left / 2));
+        limits.time_ms = budget;
+    }
+
+    return limits;
+}
+
 void uci_loop() {
     Position pos;
     init_position(pos);  // so commands work even before the first `position`
 
     Searcher searcher;
+    std::thread worker;
+
+    // Stop a running search and wait for it. Called before changing the
+    // position, before starting another search, and on quit/EOF.
+    auto finish_search = [&]() {
+        searcher.stop();
+        if(worker.joinable()) worker.join();
+    };
+
+    auto start_search = [&](const SearchLimits& limits) {
+        finish_search();
+        searcher.clear_stop();
+
+        // The worker gets its own copy of the position, so the UCI thread can
+        // keep reading commands while the search runs.
+        Position search_pos = pos;
+        worker = std::thread([&searcher, search_pos, limits]() mutable {
+            const Move best = searcher.search(search_pos, limits);
+            std::cout << "bestmove " << move_to_string(best) << std::endl;
+            std::cout.flush();
+        });
+    };
+
     std::string line;
     
     while(std::getline(std::cin, line)) {
@@ -56,15 +128,17 @@ void uci_loop() {
             std::cout.flush();
         }
         else if(command == "ucinewgame") {
+            finish_search();
             init_position(pos);
         }
         else if(command == "setoption") {
             // Ignore options for now
         }
         else if(command == "stop") {
-            // Stop search - ignore for now
+            finish_search();
         }
         else if(command == "position") {
+            finish_search();
             std::string token;
             iss >> token;
             
@@ -97,30 +171,10 @@ void uci_loop() {
             }
         }
         else if(command == "go") {
-            // Parse time controls (simplified)
-            int wtime = 60000, btime = 60000;
-            int winc = 0, binc = 0;
-            std::string token;
-            
-            while(iss >> token) {
-                if(token == "wtime") iss >> wtime;
-                else if(token == "btime") iss >> btime;
-                else if(token == "winc") iss >> winc;
-                else if(token == "binc") iss >> binc;
-            }
-            
-            // Calculate time for this move
-            int time_left = (pos.side_to_move == WHITE) ? wtime : btime;
-            int inc = (pos.side_to_move == WHITE) ? winc : binc;
-            int time_for_move = time_left / 30 + inc / 2;
-            time_for_move = std::max(time_for_move, 100);
-            time_for_move = std::min(time_for_move, time_left / 2);
-            
-            Move best = searcher.search(pos, time_for_move);
-            std::cout << "bestmove " << move_to_string(best) << std::endl;
-            std::cout.flush();
+            start_search(parse_go(iss, pos));
         }
         else if(command == "quit") {
+            finish_search();
             break;
         }
         else if(command == "print") {
@@ -129,6 +183,8 @@ void uci_loop() {
             std::cout << "Eval: " << evaluate(pos) << " cp" << std::endl;
         }
     }
+
+    finish_search();
 }
 
 // ============================================================

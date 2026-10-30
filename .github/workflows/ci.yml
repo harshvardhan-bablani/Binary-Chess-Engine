@@ -16,8 +16,11 @@ jobs:
       - name: Build engine and test runners
         run: make
 
-      - name: Run perft and rules suites
+      - name: Run perft, rules and search suites
         run: make test
+
+      - name: UCI regression probes
+        run: python tests/regression.py ./build/chess-engine
 
       - name: UCI smoke test
         run: |

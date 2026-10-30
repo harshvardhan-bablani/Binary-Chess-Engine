@@ -52,7 +52,7 @@ This chess engine was built as a deep dive into **game theory, search algorithms
 | **Piece-Square Tables** | Positional evaluation based on piece placement |
 | **UCI Protocol** | Compatible with Arena, Cute Chess, and other GUIs |
 | **Play Mode** | `play.bat`: type `e4`, `Nf3` or `O-O` and the engine replies |
-| **UCI Time Control** | Uses `wtime` / `btime` / `winc` / `binc` from the GUI |
+| **UCI Time Control** | `wtime` / `btime` / `winc` / `binc` / `movestogo`, plus `movetime`, `depth`, `nodes`, `infinite` and `stop`; scores are from the side to move |
 
 ---
 
@@ -350,7 +350,7 @@ build.bat
 **Linux / macOS / MSYS2**
 
 ```bash
-make            # produces build/chess-engine, build/perft and build/rules
+make            # produces build/chess-engine, build/perft, build/rules and build/searchtest
 ```
 
 **Without make, any platform**
@@ -386,18 +386,18 @@ published reference values. If a single move is wrong, the counts diverge.
 
 ```bat
 build.bat          :: 1. compile into build\chess-engine.exe
-run_tests.bat      :: 2. build and run the perft + rules suites
+run_tests.bat      :: 2. build and run the perft + rules + search suites
 ```
 
 **Linux / macOS / MSYS2**
 
 ```bash
-make test          # builds everything, then runs both suites
+make test          # builds everything, then runs all three suites
 ```
 
 That is all. The suite runs six standard positions to depth 4–5 (31 checks, about
-2 seconds), then the notation/rules tests (60 checks), and prints `PASS` or `FAIL`
-for each, exiting non-zero on failure.
+2 seconds), then the notation/rules tests (60 checks), then the search tests
+(15 checks), and prints `PASS` or `FAIL` for each, exiting non-zero on failure.
 
 ```
 startpos
@@ -414,6 +414,13 @@ rules test
   [PASS] rnbqkbnr/pppppppp/8/8/8/8/PPPPPP...  20 moves
   ...
 60/60 checks passed
+
+search test
+===========
+  [PASS] en passant is a capture
+  [PASS] mate in one is found at depth 1
+  ...
+15/15 checks passed
 ```
 
 Pass a depth to cap the run when you want a quick check:
@@ -428,11 +435,12 @@ Pass a depth to cap the run when you want a quick check:
 |------|---------|----------------|
 | Perft suite | `make test` | Move generation matches the reference counts for all six standard positions |
 | Notation & rules | `make test` | Every legal move survives SAN round-trip; castling, promotion, en passant, mate/stalemate and the draw rules are parsed and reported correctly |
-| UCI regression | `python tests/regression.py ./build/chess-engine` | Illegal castling, illegal promotion, malformed FEN and terminal edge cases are rejected |
+| Search | `make test` | Quiescence finds en passant and quiet promotions, sees mates at the horizon, and honours depth, node and time limits |
+| UCI regression | `python tests/regression.py ./build/chess-engine` | Illegal castling, illegal promotion, malformed FEN and terminal edge cases are rejected; `movetime`/`depth`/`nodes`/`infinite`+`stop` are honoured and scores are side-to-move relative |
 | Self-play | `pip install python-chess` then `python tests/selfplay.py ./build/chess-engine` | The engine only ever plays legal moves, with `python-chess` as referee |
 
-CI runs the build, both test suites, a UCI smoke test, a play-mode smoke test and
-a self-play game on every push and pull request
+CI runs the build, all three test suites, the UCI regression probes, a UCI smoke
+test, a play-mode smoke test and a self-play game on every push and pull request
 (`.github/workflows/ci.yml`).
 
 ---
@@ -580,10 +588,11 @@ chess-engine/
 ├── tests/
 │   ├── perft.cpp         # Perft suite (six standard positions)
 │   ├── rules.cpp         # Notation + game-end rule checks
-│   ├── regression.py     # Illegal-input regression checks
+│   ├── search.cpp        # Search limits, horizon and quiescence checks
+│   ├── regression.py     # UCI/illegal-input regression checks
 │   └── selfplay.py       # Self-play legality test (python-chess referee)
 ├── .github/workflows/
-│   └── ci.yml            # Build + tests + UCI/play smoke + self-play on every push
+│   └── ci.yml            # Build + all suites + UCI/play smoke + self-play on every push
 ├── Makefile              # make / make test
 ├── build.bat             # one-command Windows build
 ├── play.bat              # build (if needed) and play a game

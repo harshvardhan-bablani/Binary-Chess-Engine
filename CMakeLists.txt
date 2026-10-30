@@ -25,8 +25,10 @@ set(SOURCES
 )
 
 # Engine executable
+find_package(Threads REQUIRED)
 add_executable(chess-engine ${SOURCES})
 target_include_directories(chess-engine PRIVATE src)
+target_link_libraries(chess-engine PRIVATE Threads::Threads)
 
 # Perft test runner
 add_executable(perft
@@ -46,11 +48,24 @@ add_executable(rules
 )
 target_include_directories(rules PRIVATE src)
 
+# Search limits, horizon and quiescence tests
+add_executable(searchtest
+    tests/search.cpp
+    src/board.cpp
+    src/movegen.cpp
+    src/eval.cpp
+    src/search.cpp
+)
+target_include_directories(searchtest PRIVATE src)
+target_link_libraries(searchtest PRIVATE Threads::Threads)
+
 # Compiler flags. Deliberately no -march=native: the binary stays portable.
 target_compile_options(chess-engine PRIVATE -O2 -Wall -Wextra -Wpedantic)
 target_compile_options(perft PRIVATE -O2 -Wall -Wextra -Wpedantic)
 target_compile_options(rules PRIVATE -O2 -Wall -Wextra -Wpedantic)
+target_compile_options(searchtest PRIVATE -O2 -Wall -Wextra -Wpedantic)
 
 enable_testing()
 add_test(NAME perft COMMAND perft)
 add_test(NAME rules COMMAND rules)
+add_test(NAME searchtest COMMAND searchtest)

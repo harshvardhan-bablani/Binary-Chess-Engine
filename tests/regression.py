@@ -1,5 +1,8 @@
+import queue
 import subprocess
 import sys
+import threading
+import time
 
 EXE = sys.argv[1]
 
@@ -119,6 +122,145 @@ ok &= check("rights after a1xa8 are Kk",
 rc, fen, _ = fen_of(["position fen r1b1k2N/pp1nb1pp/8/2pNp3/8/8/PPP1PPPP/R1B1KB1R b KQq - 0 10 moves e8g8", "print", "quit"])
 ok &= check("black cannot castle with no rook on h8",
             fen == "r1b1k2N/pp1nb1pp/8/2pNp3/8/8/PPP1PPPP/R1B1KB1R b KQq - 0 10", fen)
+
+print("14. UCI clock, depth, stop and score reporting")
+
+
+class LiveEngine:
+    """One long-lived engine process, so a search can actually run.
+
+    The one-shot `uci()` helper sends `quit` straight after `go`, and the
+    engine stops the search when it sees `quit`. Anything that measures a
+    clock, a depth or a stop has to keep the process open and wait for the
+    `bestmove` line instead.
+    """
+
+    def __init__(self):
+        self.p = subprocess.Popen([EXE], stdin=subprocess.PIPE,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  text=True, bufsize=1)
+        self.q = queue.Queue()
+        threading.Thread(target=self._read, daemon=True).start()
+        self.send("uci")
+        self.wait("uciok")
+
+    def _read(self):
+        for line in self.p.stdout:
+            self.q.put(line.strip())
+
+    def send(self, cmd):
+        self.p.stdin.write(cmd + "\n")
+        self.p.stdin.flush()
+
+    def wait(self, prefix, timeout=15):
+        while True:
+            line = self.q.get(timeout=timeout)
+            if line.startswith(prefix):
+                return line
+
+    def search(self, cmd, timeout=15):
+        """Send `cmd` and collect output until bestmove. Returns (lines, seconds)."""
+        start = time.time()
+        self.send(cmd)
+        lines = []
+        while True:
+            line = self.q.get(timeout=timeout)
+            lines.append(line)
+            if line.startswith("bestmove"):
+                return lines, time.time() - start
+
+    def close(self):
+        try:
+            self.send("quit")
+            self.p.wait(timeout=5)
+        except Exception:
+            self.p.kill()
+
+
+def info_lines(lines):
+    return [l for l in lines if l.startswith("info depth")]
+
+
+def reported_depth(lines):
+    depths = []
+    for line in info_lines(lines):
+        parts = line.split()
+        if len(parts) > 2 and parts[1] == "depth":
+            try:
+                depths.append(int(parts[2]))
+            except ValueError:
+                pass
+    return max(depths) if depths else 0
+
+
+def last_score(lines):
+    """The (kind, value) of the last `score` field, e.g. ('cp', 40)."""
+    score = None
+    for line in info_lines(lines):
+        parts = line.split()
+        if "score" in parts:
+            i = parts.index("score")
+            if i + 2 < len(parts):
+                try:
+                    score = (parts[i + 1], int(parts[i + 2]))
+                except ValueError:
+                    pass
+    return score
+
+
+engine = LiveEngine()
+try:
+    engine.send("position startpos")
+    lines, elapsed = engine.search("go movetime 400")
+    ok &= check("movetime 400 finishes in about 0.4 s", elapsed < 1.5, f"{elapsed:.2f}s")
+    ok &= check("movetime search reaches at least depth 3", reported_depth(lines) >= 3,
+                f"depth {reported_depth(lines)}")
+
+    engine.send("position startpos")
+    lines, elapsed = engine.search("go depth 4")
+    ok &= check("go depth 4 stops at depth 4", reported_depth(lines) == 4,
+                f"depth {reported_depth(lines)}")
+
+    engine.send("position startpos")
+    engine.send("go infinite")
+    time.sleep(0.4)
+    lines, elapsed = engine.search("stop")
+    ok &= check("go infinite + stop answers bestmove", bool(lines) and
+                lines[-1].startswith("bestmove"), lines[-1] if lines else "none")
+    ok &= check("stop is honoured quickly", elapsed < 1.5, f"{elapsed:.2f}s")
+
+    engine.send("position startpos")
+    lines, elapsed = engine.search("go nodes 2000")
+    ok &= check("go nodes 2000 returns a legal bestmove",
+                bool(lines) and lines[-1].startswith("bestmove") and
+                lines[-1] != "bestmove 0000", lines[-1] if lines else "none")
+    ok &= check("go nodes 2000 is quick", elapsed < 1.5, f"{elapsed:.2f}s")
+
+    # Black to move, a queen up. UCI scores are from the side to move, so the
+    # engine must report a positive score here.
+    engine.send("position fen 7k/q7/8/8/8/8/8/7K b - - 0 1")
+    lines, _ = engine.search("go depth 3")
+    score = last_score(lines)
+    ok &= check("score is side-to-move relative (Black +queen is positive)",
+                score is not None and score[0] == "cp" and score[1] > 0, str(score))
+
+    # White mates in one with Ra8#.
+    engine.send("position fen 6k1/5ppp/8/8/8/8/8/R5K1 w - - 0 1")
+    lines, _ = engine.search("go depth 2")
+    score = last_score(lines)
+    ok &= check("mate in one is reported as 'score mate 1'",
+                score is not None and score[0] == "mate" and score[1] == 1, str(score))
+    ok &= check("mate in one plays a1a8",
+                bool(lines) and lines[-1].split()[-1] == "a1a8",
+                lines[-1] if lines else "none")
+
+    engine.send("position startpos moves f2f3 e7e5 g2g4 d8h4")
+    lines, _ = engine.search("go movetime 200")
+    ok &= check("checkmated position returns bestmove 0000",
+                bool(lines) and lines[-1] == "bestmove 0000",
+                lines[-1] if lines else "none")
+finally:
+    engine.close()
 
 print()
 print("ALL REGRESSION PROBES PASSED" if ok else "SOME REGRESSION PROBES FAILED")

@@ -374,7 +374,11 @@ std::vector<Move> generate_moves(const Position& pos) {
     return moves;
 }
 
-// Generate capture moves only
+// Generate capture moves only.
+//
+// Quiescence must see every forcing move, so this includes en passant captures
+// (whose destination square is empty) and promotions (which are forcing even
+// when they do not capture anything).
 std::vector<Move> generate_captures(const Position& pos) {
     std::vector<Move> all_moves = generate_moves(pos);
     std::vector<Move> captures;
@@ -382,7 +386,17 @@ std::vector<Move> generate_captures(const Position& pos) {
     uint64_t their_pieces = (pos.side_to_move == WHITE) ? pos.black_pieces : pos.white_pieces;
     
     for(const Move& move : all_moves) {
-        if(their_pieces & (1ULL << move.to)) {
+        const bool is_capture = (their_pieces & (1ULL << move.to)) != 0;
+        const bool is_promotion = move.promotion != NONE_PIECE;
+
+        bool is_en_passant = false;
+        if(move.to == pos.en_passant) {
+            Color mover_color;
+            is_en_passant = get_piece(pos, move.from, mover_color) == PAWN &&
+                            (move.from % 8) != (move.to % 8);
+        }
+
+        if(is_capture || is_promotion || is_en_passant) {
             captures.push_back(move);
         }
     }

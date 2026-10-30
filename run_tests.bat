@@ -32,6 +32,16 @@ if errorlevel 1 (
     exit /b 1
 )
 
+echo Building build\searchtest.exe ...
+g++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Isrc -o build\searchtest.exe ^
+    tests\search.cpp src\board.cpp src\movegen.cpp src\eval.cpp src\search.cpp
+
+if errorlevel 1 (
+    echo.
+    echo [FAILED] Test build failed.
+    exit /b 1
+)
+
 echo.
 build\perft.exe %*
 if errorlevel 1 (
@@ -42,6 +52,14 @@ if errorlevel 1 (
 
 echo.
 build\rules.exe
+if errorlevel 1 (
+    echo.
+    echo TESTS FAILED
+    exit /b 1
+)
+
+echo.
+build\searchtest.exe
 if errorlevel 1 (
     echo.
     echo TESTS FAILED
