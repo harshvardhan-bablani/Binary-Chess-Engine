@@ -13,10 +13,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build engine and perft runner
+      - name: Build engine and test runners
         run: make
 
-      - name: Run perft suite
+      - name: Run perft and rules suites
         run: make test
 
       - name: UCI smoke test
@@ -27,6 +27,13 @@ jobs:
           grep -q '^uciok$' uci.out
           grep -q '^readyok$' uci.out
           grep -Eq '^bestmove [a-h][1-8][a-h][1-8][qrbn]?$' uci.out
+
+      - name: Play mode smoke test
+        run: |
+          printf 'e4\nquit\n' | ./build/chess-engine play > play.out
+          cat play.out
+          grep -q 'You played e4' play.out
+          grep -q 'Engine plays' play.out
 
       - name: Self-play legality test
         run: |

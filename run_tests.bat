@@ -1,6 +1,7 @@
 @echo off
-rem Build and run the perft move-generation test suite.
-rem Pass a depth to cap the run, e.g.  run_tests.bat 3
+rem Build and run the test suites: perft (move generation) and rules
+rem (notation and game-end rules).
+rem Pass a depth to cap the perft run, e.g.  run_tests.bat 3
 setlocal
 
 where g++ >nul 2>nul
@@ -21,8 +22,26 @@ if errorlevel 1 (
     exit /b 1
 )
 
+echo Building build\rules.exe ...
+g++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Isrc -o build\rules.exe ^
+    tests\rules.cpp src\board.cpp src\movegen.cpp src\notation.cpp src\gamestate.cpp
+
+if errorlevel 1 (
+    echo.
+    echo [FAILED] Test build failed.
+    exit /b 1
+)
+
 echo.
 build\perft.exe %*
+if errorlevel 1 (
+    echo.
+    echo TESTS FAILED
+    exit /b 1
+)
+
+echo.
+build\rules.exe
 if errorlevel 1 (
     echo.
     echo TESTS FAILED

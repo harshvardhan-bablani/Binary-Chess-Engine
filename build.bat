@@ -17,7 +17,8 @@ if not exist build mkdir build
 
 echo Building build\chess-engine.exe ...
 g++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Isrc -o build\chess-engine.exe ^
-    src\main.cpp src\board.cpp src\movegen.cpp src\eval.cpp src\search.cpp
+    src\main.cpp src\board.cpp src\movegen.cpp src\eval.cpp src\search.cpp ^
+    src\notation.cpp src\gamestate.cpp src\play.cpp
 
 if errorlevel 1 (
     echo.

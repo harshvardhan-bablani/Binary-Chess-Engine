@@ -13,6 +13,7 @@
 
 **A from-scratch chess engine implementing bitboard representation, alpha-beta search with iterative deepening, piece-square table evaluation, and the UCI protocol. It generates provably correct moves (verified with perft) and plugs into standard chess GUIs.**
 
+> **Play it in one command:** `play.bat` on Windows (type `e4`, the engine answers).
 > **Test it in one command:** `run_tests.bat` on Windows, or `make test` on Linux/macOS.
 
 </div>
@@ -50,7 +51,8 @@ This chess engine was built as a deep dive into **game theory, search algorithms
 | **Iterative Deepening** | Always has a best move ready, even under time pressure |
 | **Piece-Square Tables** | Positional evaluation based on piece placement |
 | **UCI Protocol** | Compatible with Arena, Cute Chess, and other GUIs |
-| **Time Management** | Flexible time control support |
+| **Play Mode** | `play.bat`: type `e4`, `Nf3` or `O-O` and the engine replies |
+| **UCI Time Control** | Uses `wtime` / `btime` / `winc` / `binc` from the GUI |
 
 ---
 
@@ -142,12 +144,16 @@ Each piece type has specialized move generation:
 
 | Piece | Method | Complexity |
 |-------|--------|------------|
-| **Knight** | Precomputed attack table | O(1) |
+| **Knight** | Eight fixed offsets, filtered by rank/file delta | O(1) |
 | **Bishop** | Sliding ray attack | O(7) |
 | **Rook** | Sliding ray attack | O(7) |
 | **Queen** | Bishop + Rook combined | O(14) |
 | **King** | Adjacent squares | O(1) |
 | **Pawn** | Directional + capture patterns | O(1) |
+
+The attack functions are plain functions computed on demand. They are not
+precomputed tables yet — that is the first item in
+[Future Enhancements](#-future-enhancements).
 
 **Pseudo-legal → Legal:**
 ```
@@ -253,19 +259,21 @@ uint64_t knight_attacks(int square) {
 // Bishop attacks (diagonal sliding)
 uint64_t bishop_attacks(int square, uint64_t occupied) {
     uint64_t attacks = 0;
-    int directions[] = {9, 11, -9, -11};
-    
+    int directions[] = {9, 7, -7, -9};   // the four diagonals
+
     for(int d = 0; d < 4; d++) {
         int copy = square;
         while(true) {
             copy += directions[d];
             if(copy < 0 || copy >= 64) break;
+            // A diagonal step changes rank and file by the same amount; this
+            // guard is what stops a ray wrapping around the board edge.
             if(abs((copy/8) - (square/8)) != abs((copy%8) - (square%8))) break;
             attacks |= (1ULL << copy);
             if(occupied & (1ULL << copy)) break;  // Blocked by piece
         }
     }
-    
+
     return attacks;
 }
 ```
@@ -303,10 +311,10 @@ int alphabeta(Position& pos, int depth, int alpha, int beta, bool maximizing) {
 | Metric | Measured value |
 |--------|----------------|
 | **Move generation** | ~9.5M perft nodes/second (perft(5) from the start: 4,865,609 nodes in 0.51 s) |
-| **Search Speed** | ~200k nodes/second |
+| **Search Speed** | ~265k nodes/second |
 | **Search Depth** | 6 ply in ~3 s; deeper given more time |
-| **Lines of Code** | ~1,600 |
-| **Memory Usage** | < 50 MB |
+| **Lines of Code** | ~1,800 in `src/` (plus tests and tooling) |
+| **Memory Usage** | Well under 50 MB (no transposition table yet) |
 
 These are measured on a single desktop core, not estimates. Search speed is
 deliberately modest: every candidate move copies the whole position, which is
@@ -318,7 +326,7 @@ the first thing on the [improvement list](#-future-enhancements).
 Position: Starting position
 Time: 3 seconds
 Depth reached: 6 ply
-Nodes searched: ~605,000
+Nodes searched: ~812,000
 Best move: Nf3 (Knight to f3)
 ```
 
@@ -342,14 +350,15 @@ build.bat
 **Linux / macOS / MSYS2**
 
 ```bash
-make            # produces build/chess-engine and build/perft
+make            # produces build/chess-engine, build/perft and build/rules
 ```
 
 **Without make, any platform**
 
 ```bash
 g++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Isrc -o chess-engine \
-    src/main.cpp src/board.cpp src/movegen.cpp src/eval.cpp src/search.cpp
+    src/main.cpp src/board.cpp src/movegen.cpp src/eval.cpp src/search.cpp \
+    src/notation.cpp src/gamestate.cpp src/play.cpp
 ```
 
 `CMakeLists.txt` is also provided if you prefer CMake.
@@ -357,8 +366,10 @@ g++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Isrc -o chess-engine \
 ### Running
 
 ```bash
-./build/chess-engine terminal   # play in the terminal
-./build/chess-engine            # UCI mode, for chess GUIs
+./build/chess-engine play          # play a game, you are White
+./build/chess-engine play black    # play a game as Black
+./build/chess-engine terminal      # scriptable REPL (UCI moves, no auto-reply)
+./build/chess-engine               # UCI mode, for chess GUIs
 ```
 
 ---
@@ -375,18 +386,18 @@ published reference values. If a single move is wrong, the counts diverge.
 
 ```bat
 build.bat          :: 1. compile into build\chess-engine.exe
-run_tests.bat      :: 2. build and run the perft suite
+run_tests.bat      :: 2. build and run the perft + rules suites
 ```
 
 **Linux / macOS / MSYS2**
 
 ```bash
-make test          # builds the engine + perft runner, then runs the suite
+make test          # builds everything, then runs both suites
 ```
 
-That is all. The suite runs six standard positions to depth 4–5 (31 checks,
-about 2 seconds) and prints `PASS` or `FAIL` for each, exiting non-zero on
-failure.
+That is all. The suite runs six standard positions to depth 4–5 (31 checks, about
+2 seconds), then the notation/rules tests (60 checks), and prints `PASS` or `FAIL`
+for each, exiting non-zero on failure.
 
 ```
 startpos
@@ -397,6 +408,12 @@ kiwipete
   [PASS] depth 4     4085603     418.9 ms
 ...
 31/31 checks passed in 1.60 s
+
+rules test
+==========
+  [PASS] rnbqkbnr/pppppppp/8/8/8/8/PPPPPP...  20 moves
+  ...
+60/60 checks passed
 ```
 
 Pass a depth to cap the run when you want a quick check:
@@ -410,17 +427,68 @@ Pass a depth to cap the run when you want a quick check:
 | Test | Command | What it proves |
 |------|---------|----------------|
 | Perft suite | `make test` | Move generation matches the reference counts for all six standard positions |
+| Notation & rules | `make test` | Every legal move survives SAN round-trip; castling, promotion, en passant, mate/stalemate and the draw rules are parsed and reported correctly |
 | UCI regression | `python tests/regression.py ./build/chess-engine` | Illegal castling, illegal promotion, malformed FEN and terminal edge cases are rejected |
 | Self-play | `pip install python-chess` then `python tests/selfplay.py ./build/chess-engine` | The engine only ever plays legal moves, with `python-chess` as referee |
 
-CI runs the build, the perft suite, a UCI smoke test and a self-play game on
-every push and pull request (`.github/workflows/ci.yml`).
+CI runs the build, both test suites, a UCI smoke test, a play-mode smoke test and
+a self-play game on every push and pull request
+(`.github/workflows/ci.yml`).
 
 ---
 
 ## 🎮 How to Play
 
-### Option 1: Arena GUI (Recommended)
+### Option 1: Play in the terminal (Recommended)
+
+Double-click **`play.bat`**, or run:
+
+```bat
+play.bat            :: you play White
+play.bat black      :: you play Black
+```
+
+You type moves the way they are written in books — `e4`, `Nf3`, `exd5`, `O-O`,
+`e8=Q` — and the engine answers immediately. Coordinates (`e2e4`) work too.
+
+```
+  a b c d e f g h
+  +----------------+
+8 | r n b q k b n r |
+7 | p p p p p p p p |
+6 | . . . . . . . . |
+5 | . . . . . . . . |
+4 | . . . . . . . . |
+3 | . . . . . . . . |
+2 | P P P P P P P P |
+1 | R N B Q K B N R |
+  +----------------+
+  a b c d e f g h
+
+White to move (you)  -  level 2 (normal)
+your move> e4
+You played e4
+...
+Black to move  -  level 2 (normal)
+Engine plays Nc6   (901 ms, depth 6)
+```
+
+Type `help` at any point:
+
+| Command | What it does |
+|---------|--------------|
+| `moves` | list your legal moves in algebraic notation |
+| `hint` | the engine suggests a move without playing it |
+| `undo` | take back your move and the engine's reply |
+| `level 1` / `2` / `3` | fast (0.25 s), normal (0.9 s), strong (2.5 s) per move |
+| `new` / `new black` | start again, as White or Black |
+| `eval`, `fen`, `board` | who is better, the FEN, redraw |
+| `resign`, `quit` | leave the game |
+
+Checkmate, stalemate, the 50-move rule, threefold repetition and insufficient
+material are all detected and reported.
+
+### Option 2: Arena GUI
 
 1. **Download Arena**: [playwitharena.de](http://www.playwitharena.de)
 2. **Open Arena** → Engines → Install New Engine
@@ -428,10 +496,12 @@ every push and pull request (`.github/workflows/ci.yml`).
 4. **Choose protocol**: UCI
 5. **Play!**
 
-### Option 2: Terminal Mode
+### Option 3: Scriptable terminal mode
+
+For piping moves in from a script (no automatic replies):
 
 ```bash
-./chess-engine terminal
+./build/chess-engine terminal
 
 === CHESS ENGINE ===
 Commands:
@@ -442,7 +512,7 @@ Commands:
   quit        - Exit
 ```
 
-### Option 3: Lichess Bot (Online Play)
+### Option 4: Lichess Bot (Online Play)
 
 Play against anyone online at https://lichess.org/@/aniemite
 
@@ -503,15 +573,20 @@ chess-engine/
 │   ├── movegen.h/cpp     # Move generation + legality checks
 │   ├── eval.h/cpp        # Evaluation function + PSTs
 │   ├── search.h/cpp      # Alpha-beta + iterative deepening
-│   └── main.cpp          # UCI protocol + terminal interface
+│   ├── notation.h/cpp    # SAN output + forgiving move parsing
+│   ├── gamestate.h/cpp   # Draw rules + game-end detection
+│   ├── play.h/cpp        # Interactive play mode
+│   └── main.cpp          # Mode dispatch: UCI, play, terminal
 ├── tests/
 │   ├── perft.cpp         # Perft suite (six standard positions)
+│   ├── rules.cpp         # Notation + game-end rule checks
 │   ├── regression.py     # Illegal-input regression checks
 │   └── selfplay.py       # Self-play legality test (python-chess referee)
 ├── .github/workflows/
-│   └── ci.yml            # Build + perft + UCI + self-play on every push
+│   └── ci.yml            # Build + tests + UCI/play smoke + self-play on every push
 ├── Makefile              # make / make test
 ├── build.bat             # one-command Windows build
+├── play.bat              # build (if needed) and play a game
 ├── run_tests.bat         # one-command Windows test
 ├── CMakeLists.txt        # Alternative CMake build
 ├── README.md             # This file

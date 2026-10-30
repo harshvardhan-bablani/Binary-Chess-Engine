@@ -6,8 +6,8 @@
 // SEARCHER CONSTRUCTOR
 // ============================================================
 
-Searcher::Searcher() : nodes(0), search_depth(0), best_score(0), 
-                       time_limit_ms(5000), time_up(false) {
+Searcher::Searcher() : nodes(0), search_depth(0), best_score(0),
+                       time_limit_ms(5000), time_up(false), silent(false) {
     best_move = null_move();
 }
 
@@ -233,12 +233,14 @@ Move Searcher::search(Position& pos, int time_ms) {
         if(time_up && depth > 1) break;
         
         // Output info
-        std::cout << "info depth " << depth 
-                  << " score cp " << score 
-                  << " nodes " << nodes
-                  << " pv " << move_to_string(confirmed_best)
-                  << std::endl;
-        std::cout.flush();
+        if (!silent) {
+            std::cout << "info depth " << depth
+                      << " score cp " << score
+                      << " nodes " << nodes
+                      << " pv " << move_to_string(confirmed_best)
+                      << std::endl;
+            std::cout.flush();
+        }
         
         // If we found a forced mate, stop searching
         if(abs(score) > 90000) break;
@@ -261,4 +263,9 @@ int Searcher::get_depth() const {
 
 int Searcher::get_score() const {
     return best_score;
+}
+
+// Play mode wants the answer, not a stream of "info depth ..." lines.
+void Searcher::set_silent(bool value) {
+    silent = value;
 }

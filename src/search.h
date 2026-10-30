@@ -20,6 +20,10 @@ public:
     int get_nodes_searched() const;
     int get_depth() const;
     int get_score() const;
+
+    // Suppress the "info depth ..." lines (used by the interactive play mode,
+    // which wants the move but not a protocol stream).
+    void set_silent(bool value);
     
 private:
     // Alpha-beta search
@@ -44,4 +48,7 @@ private:
     std::chrono::steady_clock::time_point start_time;
     int time_limit_ms;
     bool time_up;
+
+    // When true, search() stays quiet (no "info depth ..." output).
+    bool silent;
 };

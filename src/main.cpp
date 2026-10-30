@@ -9,6 +9,7 @@
 #include "movegen.h"
 #include "eval.h"
 #include "search.h"
+#include "play.h"
 
 // ============================================================
 // UCI PROTOCOL
@@ -244,22 +245,36 @@ void terminal_mode() {
 // ============================================================
 
 int main(int argc, char* argv[]) {
-    // Check for terminal mode via command line
+    // Command-line modes:
+    //   chess-engine             UCI (what a GUI or Lichess bot speaks)
+    //   chess-engine play        play a game in the terminal, as White
+    //   chess-engine play black  play as Black
+    //   chess-engine terminal    scriptable REPL (UCI-style moves, no auto-reply)
     bool terminal = false;
+    bool play = false;
+    bool play_as_white = true;
+
     for(int i = 1; i < argc; i++) {
-        std::string arg = argv[i];
+        const std::string arg = argv[i];
         if(arg == "terminal" || arg == "--terminal") {
             terminal = true;
-            break;
+        } else if(arg == "play" || arg == "--play") {
+            play = true;
+        } else if(arg == "black" || arg == "--black") {
+            play_as_white = false;
+        } else if(arg == "white" || arg == "--white") {
+            play_as_white = true;
         }
     }
-    
-    if(terminal) {
+
+    if(play) {
+        play_mode(play_as_white);
+    } else if(terminal) {
         terminal_mode();
     } else {
         // Default: UCI mode (Arena, Cute Chess, etc.)
         uci_loop();
     }
-    
+
     return 0;
 }

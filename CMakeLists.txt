@@ -19,6 +19,9 @@ set(SOURCES
     src/movegen.cpp
     src/eval.cpp
     src/search.cpp
+    src/notation.cpp
+    src/gamestate.cpp
+    src/play.cpp
 )
 
 # Engine executable
@@ -33,9 +36,21 @@ add_executable(perft
 )
 target_include_directories(perft PRIVATE src)
 
+# Notation and game-rules test runner
+add_executable(rules
+    tests/rules.cpp
+    src/board.cpp
+    src/movegen.cpp
+    src/notation.cpp
+    src/gamestate.cpp
+)
+target_include_directories(rules PRIVATE src)
+
 # Compiler flags. Deliberately no -march=native: the binary stays portable.
 target_compile_options(chess-engine PRIVATE -O2 -Wall -Wextra -Wpedantic)
 target_compile_options(perft PRIVATE -O2 -Wall -Wextra -Wpedantic)
+target_compile_options(rules PRIVATE -O2 -Wall -Wextra -Wpedantic)
 
 enable_testing()
 add_test(NAME perft COMMAND perft)
+add_test(NAME rules COMMAND rules)
